@@ -1,0 +1,11 @@
+# dsh-llm-gateway bundle patch.
+#
+# A single insert mounts the plugin; it participates in composition through
+# its named exports (name / inject / apply).
+- insert:
+    - id: llm-gateway
+      name: 'dsh-llm-gateway'
+      config:
+        port: 2778
+        host: 127.0.0.1
+        apiKey: null
