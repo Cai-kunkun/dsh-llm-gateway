@@ -1,6 +1,6 @@
 {
   "name": "dsh-llm-gateway",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "OpenAI-compatible gateway that exposes every model configured in DeepSeek Harness on a local port (default 2778), so other agent tools can call those models through the harness provider adapters.",

@@ -37,7 +37,11 @@ function normalizeConfig(raw) {
   const host = typeof config.host === 'string' && config.host !== '' ? config.host : '127.0.0.1'
   const apiKey = typeof config.apiKey === 'string' && config.apiKey.length > 0 ? config.apiKey : null
   const imageMode = config.imageMode === 'placeholder' ? 'placeholder' : 'auto'
-  return { port, host, apiKey, imageMode }
+  // Opt-in LAN exposure without a credential. Kept separate from `host` so that
+  // pointing at a wildcard address alone never silently removes admission
+  // checks; both must be set deliberately.
+  const allowLan = config.allowLan === true
+  return { port, host, apiKey, imageMode, allowLan }
 }
 
 export function apply(ctx, rawConfig) {
@@ -73,7 +77,8 @@ export function apply(ctx, rawConfig) {
       })
       serverHandle.ready.then(() => {
         const address = serverHandle.address()
-        log('info', `gateway listening on http://${address.host}:${address.port}/v1 (${config.apiKey === null ? 'loopback-only, no apiKey' : 'bearer apiKey required'})`)
+        const mode = config.apiKey !== null ? 'bearer apiKey required' : config.allowLan ? 'open to the network, no apiKey' : 'loopback-only, no apiKey'
+        log('info', `gateway listening on http://${address.host}:${address.port}/v1 (${mode})`)
         log('info', `models listing: http://${address.host}:${address.port}/v1/models`)
       }).catch((error) => {
         startFailure = error
@@ -101,7 +106,7 @@ export function apply(ctx, rawConfig) {
   // -- diagnostic state so host logs can answer what the gateway is doing --
   const status = () => ({
     service: name,
-    config: { port: config.port, host: config.host, authMode: config.apiKey === null ? 'loopback-only' : 'api-key', imageMode: config.imageMode },
+    config: { port: config.port, host: config.host, allowLan: config.allowLan, authMode: config.apiKey !== null ? 'api-key' : config.allowLan ? 'open-network' : 'loopback', imageMode: config.imageMode },
     server: serverHandle === null ? (startFailure !== null ? { error: String(startFailure.message ?? startFailure) } : null) : serverHandle.state(),
   })
 

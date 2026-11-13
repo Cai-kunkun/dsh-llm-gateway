@@ -9,3 +9,4 @@
         port: 2778
         host: 127.0.0.1
         apiKey: null
+        allowLan: false

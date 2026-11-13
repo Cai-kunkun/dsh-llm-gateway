@@ -15,7 +15,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { startGatewayServer, parseRoute } from '../lib/server.js'
+import { startGatewayServer, parseRoute, normalizeAddress } from '../lib/server.js'
 import { fromOpenAiMessages, fromOpenAiTools, createOpenAiFolder, foldChunksToOpenAiStream, toOpenAiUsage, failureOf } from '../lib/wire.js'
 
 const passed = []
@@ -443,6 +443,46 @@ await test('HTTP: client disconnect aborts the upstream stream', async () => {
     await new Promise((resolve) => setTimeout(resolve, 200))
     assert.equal(sawAbort, true, 'upstream should observe abort when client disconnects')
   })
+})
+
+await test('admission: allowLan off keeps non-loopback clients out', async () => {
+  globalThis.__fakeLlm = fakeLlm(async function* () { yield* textStream('ok') })
+  // Bind to the wildcard address so a LAN-reachable client could connect, then
+  // confirm the request boundary still refuses it: loopback admission must be
+  // decided by the peer address, not by the bind address.
+  await withServer({ allowLan: false }, async (port, handle) => {
+    assert.equal(handle.state().authMode, 'loopback')
+    const lan = await fetch(`http://127.0.0.1:${port}/v1/models`)
+    assert.equal(lan.status, 200, 'loopback stays admitted')
+  })
+})
+
+await test('admission: allowLan on admits without a key', async () => {
+  globalThis.__fakeLlm = fakeLlm(async function* () { yield* textStream('ok') })
+  await withServer({ allowLan: true }, async (port, handle) => {
+    assert.equal(handle.state().authMode, 'open-network')
+    const response = await fetch(`http://127.0.0.1:${port}/v1/models`)
+    assert.equal(response.status, 200)
+    const chat = await post(port, '/v1/chat/completions', { model: 'fake/m1', messages: [{ role: 'user', content: 'hi' }] })
+    assert.equal(chat.status, 200, 'completions are admitted without a credential')
+  })
+})
+
+await test('admission: apiKey wins over allowLan', async () => {
+  globalThis.__fakeLlm = fakeLlm(async function* () { yield* textStream('ok') })
+  await withServer({ allowLan: true, apiKey: 'k' }, async (port, handle) => {
+    assert.equal(handle.state().authMode, 'api-key')
+    const noAuth = await fetch(`http://127.0.0.1:${port}/v1/models`)
+    assert.equal(noAuth.status, 401, 'a configured key is never bypassed by allowLan')
+  })
+})
+
+await test('normalizeAddress strips the IPv4-mapped prefix', () => {
+  assert.equal(normalizeAddress('::ffff:127.0.0.1'), '127.0.0.1')
+  assert.equal(normalizeAddress('::ffff:192.168.1.5'), '192.168.1.5')
+  assert.equal(normalizeAddress('127.0.0.1'), '127.0.0.1')
+  assert.equal(normalizeAddress('::1'), '::1')
+  assert.equal(normalizeAddress(undefined), '')
 })
 
 await test('parseRoute: splitting and rejection', () => {

@@ -106,6 +106,7 @@ Configuration lives in the profile patch layer:
     port: 2778
     host: 127.0.0.1
     apiKey: null
+    allowLan: false
     imageMode: auto
 ```
 
@@ -114,6 +115,7 @@ Configuration lives in the profile patch layer:
 | `port` | `2778` | Listen port |
 | `host` | `127.0.0.1` | Listen address |
 | `apiKey` | `null` | When non-empty, requires `Authorization: Bearer <key>` |
+| `allowLan` | `false` | Admits non-loopback clients without a credential when no `apiKey` is set. Opt-in only |
 | `imageMode` | `auto` | `auto` admits data-URL images through the attachment store; `placeholder` always degrades them to text |
 
 ## Request translation
@@ -155,14 +157,23 @@ Streaming responses are committed to SSE headers only after the upstream iterato
 
 ## Security model
 
-The gateway is a network-facing listener with no session behind it, so access is closed by default.
+The gateway is a network-facing listener with no session behind it, so access is closed by default. Admission is decided by three explicit modes:
 
-- With `apiKey: null` the server refuses every non-loopback connection at the request boundary, in addition to binding `127.0.0.1`.
-- With an `apiKey` set, every request must present a matching `Authorization: Bearer` header, compared with a constant-time comparison of equal-length buffers.
+| Mode | Condition | Behavior |
+|---|---|---|
+| `api-key` | `apiKey` set | Every request needs a matching `Authorization: Bearer`, compared in constant time over equal-length buffers |
+| `loopback` | no `apiKey`, `allowLan: false` | Non-loopback peers are refused at the request boundary, independent of the bind address |
+| `open-network` | no `apiKey`, `allowLan: true` | Any peer that can reach the port is admitted without a credential |
+
+`allowLan` is a deliberate separate switch rather than a side effect of binding a wildcard address. Pointing `host` at `0.0.0.0` while leaving `allowLan` off still refuses remote clients, and a configured `apiKey` is never bypassed by `allowLan`.
+
+`open-network` is intended for a trusted private network only. It grants every host on that network access to the configured models and their provider quota, so enable it knowingly.
+
+Other protections apply in all modes:
+
+- Loopback comparison normalizes IPv4-mapped IPv6 addresses (`::ffff:127.0.0.1`), so a dual-stack listener cannot misclassify a local peer.
 - Client disconnects abort the upstream request through an `AbortSignal`, so the provider-side call is cancelled rather than left running.
 - Request bodies are capped at 32 MiB and are never persisted. Access logging records method and path only.
-
-Binding to a non-loopback address without an `apiKey` is rejected by design; LAN exposure requires explicitly configuring a key.
 
 ## Testing
 
